@@ -454,26 +454,6 @@ class aoa_fit:
                   f"simple coefs: {self.coefs_two[0]:8.4f}; {self.coefs_two[1]:8.4f}")
             #print(f"    four coefs: {self.coefs_four[0]:8.4f}; {self.coefs_four[1]:8.4f}; {self.coefs_four[2]:8.4f}; {self.coefs_four[3]:8.4f}")
 
-def plot_filter_response(aos_obj: aos_fit):
-    height=300
-    width=500
-
-    cutoff = aos_obj.cutoff_freq/2./math.pi # in physical frequency, not angular
-    cutoff = 1./cutoff # cutoff in period
-    y = abs(aos_obj.h)
-    f = aos_obj.f/2./math.pi
-    period = 1./f
-
-    colors = itertools.cycle(Category10[8])
-    p = figure(width=width, height=height, title='Filter Reponse', x_range=(0,2*cutoff))
-    p.add_layout(Title(text="Amplitude [dB]", align="center"), "left")
-    p.add_layout(Title(text="Sampling Frequency [Hz]", align="center"), "below")
-    p.line(period, y, color=next(colors), width=2, legend_label='Butterworth')
-    p.line([cutoff, cutoff], [np.min(y),np.max(y)], color=next(colors), width=2, legend_label='Cutoff')
-    p.legend.location = 'top_left'
-    show(p)
-
-
 
 class aos_fit:
     # a fancy dataclass that computes quite a few things in the init
@@ -550,6 +530,26 @@ class aos_fit:
             print(f"Flight: {self.flight}, coefs: {self.coefs_two[0]:8.4f}; {self.coefs_two[1]:8.4f}")
         else:            
             print(f"Flight: {self.flight}, Leg: {self.leg}: simple coefs: {self.coefs_two[0]:8.4f}; {self.coefs_two[1]:8.4f}")
+
+def plot_filter_response(aos_obj: aos_fit):
+    height=300
+    width=500
+
+    cutoff = aos_obj.cutoff_freq/2./math.pi # in physical frequency, not angular
+    cutoff = 1./cutoff # cutoff in period
+    y = abs(aos_obj.h)
+    f = aos_obj.f/2./math.pi
+    period = 1./f
+
+    colors = itertools.cycle(Category10[8])
+    p = figure(width=width, height=height, title='Filter Reponse', x_range=(0,2*cutoff))
+    p.add_layout(Title(text="Amplitude [dB]", align="center"), "left")
+    p.add_layout(Title(text="Sampling Frequency [Hz]", align="center"), "below")
+    p.line(period, y, color=next(colors), width=2, legend_label='Butterworth')
+    p.line([cutoff, cutoff], [np.min(y),np.max(y)], color=next(colors), width=2, legend_label='Cutoff')
+    p.legend.location = 'top_left'
+    show(p)
+
 
 
 
