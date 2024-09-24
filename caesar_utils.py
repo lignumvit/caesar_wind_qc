@@ -21,7 +21,7 @@ from scipy import signal
 # Thresholds for determining what data can be considered in AoA coef determination (e.g. straight-and-level).
 # Used by mask_straight_and_level.
 #max_vspd = 0.3 # could use 1 m/s
-max_vspd = 7 # could use 1 m/s
+max_vspd = 8 # m/s
 max_roll = 1 # deg
 min_tas = 100 # m/s
 # min vspd used to isolate climb situations
@@ -44,7 +44,7 @@ read_vars = ['ADIFR', 'BDIFR', 'ADIFRTEMP', 'BDIFRTEMP', # adifr, bdifr
              'TASF', 'TASFR', 'TASR', 'TAS_A', 'TAS_A2', 'MACHX', # speeds
              'PITCH', 'ROLL', 'THDG', # attitude
              'AKRD', 'SSLIP', # flow angles
-             'RHUM', 'RICE', 'ATX',
+             'RHUM', 'RICE', 'ATX', 'BNORMA', 'BLATA', 'BLONGA',
             ]
 
 def hms_to_sfm(hms_str: str):
@@ -296,7 +296,7 @@ def plot_track(df: pd.DataFrame, mask: pd.Series = None, title: str =''):
 
 # function definition for creating generic timeseries plot
 def format_ticks(plot):
-    plot.xaxis.formatter=DatetimeTickFormatter(days =['%H:%M'], hours="%H:%M", minutes="%H:%M",hourmin = ['%H:%M'])             
+    plot.xaxis.formatter=DatetimeTickFormatter(days =['%h:%m'], hours="%h:%m", minutes="%h:%m",hourmin = ['%h:%m'])             
 
 def plot_time_series_aoa(df: pd.DataFrame, mask=None, title=''):
     if mask is None:
@@ -376,6 +376,62 @@ def plot_time_series_aoa(df: pd.DataFrame, mask=None, title=''):
 
     p = gridplot([[p2], [p4], [p5], [p7], [p9], [p8]])
     show(p)
+
+def plot_time_series_pitch(df_v0: pd.DataFrame, df_v1: pd.DataFrame, mask_v0=None, mask_v1=None, title=''):
+    if mask_v0 is None:
+        mask_v0 = [True for i in range(len(df_v0))]
+    if mask_v1 is None:
+        mask_v1 = [True for i in range(len(df_v1))]
+    # generate the altitude, heading and gps quality plots
+    # altitude plot
+    height = 200
+    width = 1000
+
+    ht = HoverTool(tooltips=[('time', '@x{%H:%M:%S}'), ('y', '@y')], formatters={'@x': 'datetime'})
+
+    colors = itertools.cycle(Category10[8])
+    p1 = figure(width=width, height=height, title=title)
+    p1.add_layout(Title(text="Vert. Spd. [m/s]", align="center"), "left")
+    p1.line(df_v0['datetime'][mask_v0], df_v0['GGVSPD'][mask_v0], color=next(colors), legend_label='GGVSPD_v0')
+    p1.line(df_v1['datetime'][mask_v1], df_v1['GGVSPD'][mask_v1], color=next(colors), legend_label='GGVSPD_v1')
+    p1.line(df_v0['datetime'][mask_v0], df_v0['WIC'][mask_v0], color=next(colors), legend_label='W_v0')
+    p1.line(df_v1['datetime'][mask_v1], df_v1['WIC'][mask_v1], color=next(colors), legend_label='W_v1')
+    p1.add_tools(ht)
+    format_ticks(p1)
+
+    aoa_corr_v0 = -np.arcsin(df_v0['GGVSPD']/df_v0['TASFR'])*180./math.pi
+    aoa_ref_v0 = df_v0['PITCH'] + aoa_corr_v0
+    aoa_corr_v1 = -np.arcsin(df_v1['GGVSPD']/df_v1['TASFR'])*180./math.pi
+    aoa_ref_v1 = df_v1['PITCH'] + aoa_corr_v1
+
+    colors = itertools.cycle(Category10[8])
+    p2 = figure(width=width, height=height, title=title)
+    p2.add_layout(Title(text="AKRD [deg]", align="center"), "left")
+    p2.line(df_v0['datetime'][mask_v0], aoa_ref_v0[mask_v0], color=next(colors), legend_label='AoARef')
+    p2.line(df_v0['datetime'][mask_v0], df_v0['AKRD'][mask_v0], color=next(colors), legend_label='AKRD_v0')
+    p2.line(df_v1['datetime'][mask_v1], df_v1['AKRD'][mask_v1], color=next(colors), legend_label='AKRD_v1')
+    p2.add_tools(ht)
+    format_ticks(p2)
+
+    colors = itertools.cycle(Category10[8])
+    p3 = figure(width=width, height=height, title=title)
+    p3.add_layout(Title(text="Altitude [m]", align="center"), "left")
+    p3.line(df_v0['datetime'][mask_v0], df_v0['PALTF'][mask_v0], color=next(colors))
+    p3.add_tools(ht)
+    format_ticks(p3)
+
+    colors = itertools.cycle(Category10[8])
+    p4 = figure(width=width, height=height, title=title)
+    p4.add_layout(Title(text="Mach No.", align="center"), "left")
+    p4.line(df_v0['datetime'][mask_v0], df_v0['MACHX'][mask_v0], color=next(colors))
+    p4.add_tools(ht)
+    format_ticks(p4)
+
+
+
+    p = gridplot([[p1], [p2], [p3], [p4], ])
+    show(p)
+
 
 class aoa_fit:
     # a fancy dataclass that computes quite a few things in the init
@@ -563,10 +619,11 @@ def plot_aoa_obj(aoa_obj: aoa_fit):
     colors = itertools.cycle(Category10[8])
     p1 = figure(width=width, height=int(height*1.5))
     p1.add_layout(Title(text="Pitch [deg]", align="center"), "left")
-    p1.line(aoa_obj.dt, aoa_obj.akrd, color=next(colors), legend_label='AOAPrev')
+    #p1.line(aoa_obj.dt, aoa_obj.akrd, color=next(colors), legend_label='AOAPrev')
     p1.line(aoa_obj.dt, aoa_obj.aoa_ref, color=next(colors), legend_label='AOAREF')
     p1.line(aoa_obj.dt, aoa_obj.akrd_three, color=next(colors), legend_label='AOAFit')
-    p1.line(aoa_obj.dt, aoa_obj.akrd_two, color=next(colors), legend_label='AOAFitSimple')
+    p1.line(aoa_obj.dt, aoa_obj.akrd_three-aoa_obj.aoa_ref, color=next(colors), legend_label='Diff')
+    #p1.line(aoa_obj.dt, aoa_obj.akrd_two, color=next(colors), legend_label='AOAFitSimple')
     p1.legend.location = 'top_left'
     p1.add_tools(ht)
     format_ticks(p1)
@@ -631,17 +688,16 @@ def plot_aoa_obj(aoa_obj: aoa_fit):
     format_ticks(p5)
 
     colors = itertools.cycle(Category10[8])
-    p6 = figure(width=width, height=height, x_range=p1.x_range)
-    p6.add_layout(Title(text="Diff. Pres. [None]", align="center"), "left")
-    #p6.line(aoa_obj.df['datetime'], aoa_obj.df['BDIFR']/aoa_obj.df['QCF'], color=next(colors), legend_label='BDIFR/QCF')
-    #p6.line(aoa_obj.df['datetime'], aoa_obj.df['ADIFR']/aoa_obj.df['QCF'], color=next(colors), legend_label='ADIFR/QCF')
-    p6.line(aoa_obj.dt, aoa_obj.bdifr/aoa_obj.q, color=next(colors), legend_label='BDIFR/QCF')
-    p6.line(aoa_obj.dt, aoa_obj.adifr/aoa_obj.q, color=next(colors), legend_label='ADIFR/QCF')
+    p6 = figure(width=width, height=int(height), x_range=p1.x_range)
+    p6.add_layout(Title(text="z-acc [m/s/s]", align="center"), "left")
+    p6.line(aoa_obj.df['datetime'], aoa_obj.df['BNORMA'], color=next(colors), legend_label='BNORMA')
+    p6.line(aoa_obj.df['datetime'], aoa_obj.df['BLATA'], color=next(colors), legend_label='BLATA')
+    p6.line(aoa_obj.df['datetime'], aoa_obj.df['BLONGA'], color=next(colors), legend_label='BLONGA')
+    p6.legend.location = 'bottom_right'
     p6.add_tools(ht)
     format_ticks(p6)
 
-
-    p = gridplot([[p8], [p2], [p1], [p3], [p7], [p9], [p5]])
+    p = gridplot([[p8], [p2], [p1], [p3], [p7], [p9], [p5], [p6],])
     show(p)
 
 def plot_maneuv_for_aoa(aoa_obj: aoa_fit):
@@ -1001,7 +1057,8 @@ def plot_flight_for_aoa(aoa_obj: aoa_fit):
     colors = itertools.cycle(Category10[8])
     p8 = figure(width=width, height=int(height), x_range=p1.x_range)
     p8.add_layout(Title(text="Pres. Alt. [ft]", align="center"), "left")
-    p8.line(aoa_obj.df['datetime'], aoa_obj.df['PALTF'], color=next(colors), legend_label='PSFD')
+    p8.line(aoa_obj.df['datetime'], aoa_obj.df['PALTF'], color=next(colors))
+    p8.line(aoa_obj.df['datetime'][aoa_obj.mask], aoa_obj.df['PALTF'][aoa_obj.mask], color=next(colors))
     p8.legend.location = 'bottom_right'
     p8.add_tools(ht)
     format_ticks(p8)
@@ -1044,7 +1101,7 @@ def plot_flight_for_aoa(aoa_obj: aoa_fit):
     format_ticks(p6)
 
 
-    p = gridplot([[p1], [p8], [p3], [p9],])
+    p = gridplot([[p8], ])
     show(p)
 
 def plot_all_scatters(aoa_objs: list[aoa_fit]):
@@ -1076,7 +1133,7 @@ def plot_all_scatters(aoa_objs: list[aoa_fit]):
     p = gridplot(figs)
     show(p)
 
-def plot_all_scatters_vertspd(up: list[aoa_fit], dn: list[aoa_fit]):
+def plot_all_scatters_vertspd(up: list[aoa_fit], dn: list[aoa_fit], coefs):
     # generate the altitude, heading and gps quality plots
     height = 300
     width = 300
@@ -1086,6 +1143,11 @@ def plot_all_scatters_vertspd(up: list[aoa_fit], dn: list[aoa_fit]):
     row_list = []
     for i, up_obj in enumerate(up):
         dn_obj = dn[i]
+
+        combined_obj = up_obj.append(dn_obj)
+        x = np.array([combined_obj.adifr/combined_obj.q, combined_obj.mach])
+        aoa_best = fit_func(x, *coefs)
+
         colors = itertools.cycle(Category10[8])
         p = figure(width=width, height=height, title=f"{up_obj.flight}, AOARef vs Ratio")
         p.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
@@ -1093,7 +1155,8 @@ def plot_all_scatters_vertspd(up: list[aoa_fit], dn: list[aoa_fit]):
         p.dot(up_obj.adifr/up_obj.q, up_obj.aoa_ref, color=next(colors), size=10, legend_label="Ascent")
         p.dot(dn_obj.adifr/dn_obj.q, dn_obj.aoa_ref, color=next(colors), size=10, legend_label="Descent")
         #p.line(aoa_obj.adifr/aoa_obj.q, aoa_obj.akrd_two, color=next(colors), legend_label='1-predictor fit', width=2)
-        p.line(up_obj.adifr/up_obj.q, up_obj.akrd, color=next(colors), legend_label='ARISTO fit')
+        #p.line(up_obj.adifr/up_obj.q, up_obj.akrd, color=next(colors), legend_label='ARISTO fit')
+        p.line(x[0,:], aoa_best, color=next(colors), legend_label='CAESAR fit')
         p.legend.location = 'top_left'
         if len(row_list) < plt_per_row:
             row_list.append(p)
@@ -1107,7 +1170,12 @@ def plot_all_scatters_vertspd(up: list[aoa_fit], dn: list[aoa_fit]):
     p = gridplot(figs)
     show(p)
 
-def plot_aoa_adifr_vertspd(up: aoa_fit, dn: aoa_fit):
+def plot_aoa_adifr_vertspd(up: aoa_fit, dn: aoa_fit, coefs):
+
+    combined_obj = up.append(dn)
+    x = np.array([combined_obj.adifr/combined_obj.q, combined_obj.mach])
+    aoa_best = fit_func(x, *coefs)
+
     # generate the altitude, heading and gps quality plots
     height = 600
     width = 600
@@ -1117,7 +1185,8 @@ def plot_aoa_adifr_vertspd(up: aoa_fit, dn: aoa_fit):
     p.add_layout(Title(text="ADIFR/Q", align="center"), "below")
     p.dot(up.adifr/up.q, up.aoa_ref, color=next(colors), size=10, legend_label='Ascent')
     p.dot(dn.adifr/dn.q, dn.aoa_ref, color=next(colors), size=10, legend_label='Descent')
-    p.line(up.adifr/up.q, up.akrd, color=next(colors), legend_label='ARISTO fit', width=2)
+    p.line(x[0,:], aoa_best, color=next(colors), legend_label='CAESAR fit', width=2)
+    #p.line(up.adifr/up.q, up.akrd, color=next(colors), legend_label='ARISTO fit', width=2)
     #p.line(aoa_obj.adifr/aoa_obj.q, aoa_obj.akrd_three, color=next(colors), legend_label='2-predictor fit', width=1)
     #p.line(aoa_obj.adifr/aoa_obj.q, aoa_obj.akrd, color=next(colors), legend_label='ARISTO fit')
     p.legend.location = 'top_left'
@@ -1176,28 +1245,47 @@ def plot_aoa_aoa(aoa_obj: aoa_fit, aoa_range=(0,6)):
     p.dot(aoa_obj.aoa_ref, aoa_obj.akrd_two, color=next(colors), size=10, legend_label='No Mach Fit')
     #p.dot(aoa_obj.aoa_ref, aoa_obj.akrd_three, color=next(colors), size=10, legend_label='Mach Fit', fill_alpha=0.5, line_alpha=0.5)
     p.dot(aoa_obj.aoa_ref, aoa_obj.akrd_three, color=next(colors), size=10, legend_label='Mach Fit')
-    p.dot(aoa_obj.aoa_ref, aoa_obj.akrd_four, color=next(colors), size=10, legend_label='Mach, Rho Fit')
+    #p.dot(aoa_obj.aoa_ref, aoa_obj.akrd_four, color=next(colors), size=10, legend_label='Mach, Rho Fit')
     p.line(aoa_range, aoa_range, color='black', legend_label='1-to-1', width=1)
     p.legend.location = 'top_left'
 
     show(p)
 
-def plot_aoa_aoa_final(aoa_obj: aoa_fit, coefs, aoa_range=(0,6), title=''):
+def plot_aoa_aoa_final(aoa_obj: aoa_fit, coefs_mans, coefs_flights, coefs_final, aoa_range=(0,6)):
     # generate the altitude, heading and gps quality plots
-    height = 600
-    width = 600
+    height = 500
+    width = 500
     alpha = 0.1
     x = np.array([aoa_obj.adifr/aoa_obj.q, aoa_obj.mach])
-    aoa_best_fit = fit_func(x, *coefs)
+    aoa_mans = fit_func(x, *coefs_mans)
+    aoa_flights = fit_func(x, *coefs_flights)
+    aoa_final = fit_func(x, *coefs_final)
 
     colors = itertools.cycle(Category10[8])
-    p = figure(width=width, height=height, title='AOAFit vs AOARef ' + title, x_range=aoa_range, y_range=aoa_range)
-    p.add_layout(Title(text="AoA Fit [deg]", align="center"), "left")
-    p.add_layout(Title(text="AoA Ref [deg]", align="center"), "below")
-    p.dot(aoa_obj.aoa_ref, aoa_best_fit, color=next(colors), size=10, legend_label='Best Fit', fill_alpha=alpha, line_alpha=alpha)
-    p.line(aoa_range, aoa_range, color='black', legend_label='1-to-1', width=1)
-    p.legend.location = 'top_left'
+    p1 = figure(width=width, height=height, title='Coefficients only from Maneuvers', x_range=aoa_range, y_range=aoa_range)
+    p1.add_layout(Title(text="AoA Fit [deg]", align="center"), "left")
+    p1.add_layout(Title(text="AoA Ref [deg]", align="center"), "below")
+    p1.dot(aoa_obj.aoa_ref, aoa_mans, color=next(colors), size=10, fill_alpha=alpha, line_alpha=alpha)
+    p1.line(aoa_range, aoa_range, color='black', legend_label='1-to-1', width=1)
+    p1.legend.location = 'top_left'
 
+    colors = itertools.cycle(Category10[8])
+    p2 = figure(width=width, height=height, title='Coefficients from All Flight Data', x_range=aoa_range, y_range=aoa_range)
+    p2.add_layout(Title(text="AoA Fit [deg]", align="center"), "left")
+    p2.add_layout(Title(text="AoA Ref [deg]", align="center"), "below")
+    p2.dot(aoa_obj.aoa_ref, aoa_flights, color=next(colors), size=10, fill_alpha=alpha, line_alpha=alpha)
+    p2.line(aoa_range, aoa_range, color='black', legend_label='1-to-1', width=1)
+    p2.legend.location = 'top_left'
+
+    colors = itertools.cycle(Category10[8])
+    p3 = figure(width=width, height=height, title='Coefficients from Maneuvers + RF10 BL Profiling', x_range=aoa_range, y_range=aoa_range)
+    p3.add_layout(Title(text="AoA Fit [deg]", align="center"), "left")
+    p3.add_layout(Title(text="AoA Ref [deg]", align="center"), "below")
+    p3.dot(aoa_obj.aoa_ref, aoa_final, color=next(colors), size=10, fill_alpha=alpha, line_alpha=alpha)
+    p3.line(aoa_range, aoa_range, color='black', legend_label='1-to-1', width=1)
+    p3.legend.location = 'top_left'
+
+    p = gridplot([[p1, p2,], [p3],])
     show(p)
 
 
@@ -1205,50 +1293,51 @@ def plot_aoa_aoa_final(aoa_obj: aoa_fit, coefs, aoa_range=(0,6), title=''):
 
 def plot_scatter_rf04(low: aoa_fit, mid: aoa_fit, high: aoa_fit):
     # generate the altitude, heading and gps quality plots
-    height = 400
-    width = 400
+    height = 600
+    width = 600
     ratios = np.array([-0.35, 0])
     colors = itertools.cycle(Category10[8])
     color1=next(colors)
     color2=next(colors)
     color3=next(colors)
 
-    p1 = figure(width=width, height=height, title='AOARef vs Ratio')
+    p1 = figure(width=width, height=height, title='AOARef vs Ratio', x_range=list(ratios))
     p1.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
     p1.add_layout(Title(text="ADIFR/Q", align="center"), "below")
     p1.dot(low.adifr/low.q, low.aoa_ref, color=color1, size=10)
-    #p1.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
-    #p1.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
-    p1.line(ratios, simple_fit_func(ratios, *low.coefs_two), color='black', legend_label='Low', width=1.5)
+    p1.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
+    p1.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
+    p1.line(ratios, simple_fit_func(ratios, *low.coefs_two), color=color1, legend_label='Low', width=1.5)
     p1.line(ratios, simple_fit_func(ratios, *mid.coefs_two), color=color2, legend_label='Mid', width=1.5)
     p1.line(ratios, simple_fit_func(ratios, *high.coefs_two), color=color3, legend_label='High', width=1.5)
     p1.legend.location = 'top_left'
 
-    p2 = figure(width=width, height=height, title='AOARef vs Ratio')
-    p2.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
-    p2.add_layout(Title(text="ADIFR/Q", align="center"), "below")
-    #p2.dot(low.adifr/low.q, low.aoa_ref, color=color1, size=10)
-    #p2.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
-    p2.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
-    p2.line(ratios, simple_fit_func(ratios, *low.coefs_two), color=color1, legend_label='Low', width=1.5)
-    p2.line(ratios, simple_fit_func(ratios, *mid.coefs_two), color='black', legend_label='Mid', width=1.5)
-    p2.line(ratios, simple_fit_func(ratios, *high.coefs_two), color=color3, legend_label='High', width=1.5)
-    p2.legend.location = 'top_left'
+    #p2 = figure(width=width, height=height, title='AOARef vs Ratio')
+    #p2.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
+    #p2.add_layout(Title(text="ADIFR/Q", align="center"), "below")
+    ##p2.dot(low.adifr/low.q, low.aoa_ref, color=color1, size=10)
+    ##p2.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
+    #p2.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
+    #p2.line(ratios, simple_fit_func(ratios, *low.coefs_two), color=color1, legend_label='Low', width=1.5)
+    #p2.line(ratios, simple_fit_func(ratios, *mid.coefs_two), color='black', legend_label='Mid', width=1.5)
+    #p2.line(ratios, simple_fit_func(ratios, *high.coefs_two), color=color3, legend_label='High', width=1.5)
+    #p2.legend.location = 'top_left'
 
-    p3 = figure(width=width, height=height, title='AOARef vs Ratio')
-    p3.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
-    p3.add_layout(Title(text="ADIFR/Q", align="center"), "below")
-    #p3.dot(low.adifr/low.q, low.aoa_ref, color=color1, size=10)
-    p3.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
-    #p3.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
-    p3.line(ratios, simple_fit_func(ratios, *low.coefs_two), color=color1, legend_label='Low', width=1.5)
-    p3.line(ratios, simple_fit_func(ratios, *mid.coefs_two), color=color2, legend_label='Mid', width=1.5)
-    p3.line(ratios, simple_fit_func(ratios, *high.coefs_two), color='black', legend_label='High', width=1.5)
-    p3.legend.location = 'top_left'
+    #p3 = figure(width=width, height=height, title='AOARef vs Ratio')
+    #p3.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
+    #p3.add_layout(Title(text="ADIFR/Q", align="center"), "below")
+    ##p3.dot(low.adifr/low.q, low.aoa_ref, color=color1, size=10)
+    #p3.dot(high.adifr/high.q, high.aoa_ref, color=color3, size=10)
+    ##p3.dot(mid.adifr/mid.q, mid.aoa_ref, color=color2, size=10)
+    #p3.line(ratios, simple_fit_func(ratios, *low.coefs_two), color=color1, legend_label='Low', width=1.5)
+    #p3.line(ratios, simple_fit_func(ratios, *mid.coefs_two), color=color2, legend_label='Mid', width=1.5)
+    #p3.line(ratios, simple_fit_func(ratios, *high.coefs_two), color='black', legend_label='High', width=1.5)
+    #p3.legend.location = 'top_left'
 
-    p = gridplot([[p1], [p2], [p3], ])
+    #p = gridplot([[p1], [p2], [p3], ])
 
-    show(p)
+    #show(p)
+    show(p1)
 
 
 def plot_hists_rf04(low, mid, high , nbins=50):
