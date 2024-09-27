@@ -44,7 +44,7 @@ read_vars = ['ADIFR', 'BDIFR', 'ADIFRTEMP', 'BDIFRTEMP', # adifr, bdifr
              'TASF', 'TASFR', 'TASR', 'TAS_A', 'TAS_A2', 'MACHX', # speeds
              'PITCH', 'ROLL', 'THDG', # attitude
              'AKRD', 'SSLIP', # flow angles
-             'RHUM', 'RICE', 'ATX', 'BNORMA', 'BLATA', 'BLONGA',
+             'RHUM', 'RICE', 'ATX', 'BNORMA', 'BLATA', 'BLONGA', 'WDC',
             ]
 
 def hms_to_sfm(hms_str: str):
@@ -422,29 +422,30 @@ def plot_time_series_pitch(df_v0: pd.DataFrame, df_v1: pd.DataFrame, mask_v0=Non
 
     colors = itertools.cycle(Category10[8])
     p4 = figure(width=width, height=height, title=title)
-    p4.add_layout(Title(text="Mach No.", align="center"), "left")
-    p4.line(df_v0['datetime'][mask_v0], df_v0['MACHX'][mask_v0], color=next(colors))
+    p4.add_layout(Title(text="Wind [m/s]", align="center"), "left")
+    p4.line(df_v1['datetime'][mask_v1], df_v1['UIC'][mask_v0], color=next(colors), legend_label='U')
+    p4.line(df_v1['datetime'][mask_v1], df_v1['VIC'][mask_v0], color=next(colors), legend_label='V')
     p4.add_tools(ht)
     format_ticks(p4)
 
 
 
-    p = gridplot([[p1], [p2], [p3], [p4], ])
+    p = gridplot([[p3], [p1], [p2], [p4] ])
     show(p)
 
 
 class aoa_fit:
     # a fancy dataclass that computes quite a few things in the init
-    def __init__(self, df: pd.DataFrame, mask: np.array, flight: str, leg: int = None):
+    def __init__(self, df: pd.DataFrame, mask: np.array, flight: str, leg: int = None, order=5, sampling_freq=2*math.pi/1, cutoff_freq=2*math.pi/30.):
         self.df = df
         self.mask = mask
         self.flight = flight
         self.leg = leg
         self.prev_coefs_three = [4.7532, 9.7908, 6.0781]
         self.prev_coefs_two = [5.661,14.826]
-        self.varnamemap = {'datetime': 'dt', 'QCF': 'q', 'PSFD': 'ps', 'ADIFR': 'adifr', 'BDIFR': 'bdifr',
-                           'GGVSPD': 'vspd', 'TASFR': 'tas', 'PITCH': 'pitch', 'AKRD': 'akrd', 'PALTF': 'paltf',
-                           'GGALT': 'alt', 'ATX': 'tc', 'PSXC': 'p'}
+        self.varnamemap = {'datetime': 'dt', 'QCF': 'q', 'PSFD': 'ps', 'ADIFR': 'adifr', 'BDIFR': 'bdifr', 'SSLIP': 'sslip',
+                           'GGVSPD': 'vspd', 'TASFR': 'tas', 'PITCH': 'pitch', 'AKRD': 'akrd', 'PALTF': 'paltf', 'THDG': 'hdg',
+                           'GGALT': 'alt', 'ATX': 'tc', 'PSXC': 'p', 'UIC': 'u', 'VIC': 'v', 'WIC': 'w', 'GGVEW': 'up', 'GGVNS': 'vp', 'GGTRK': 'trk'}
         self.r2d = 180./math.pi
         # get basic vars needed
 
@@ -456,6 +457,40 @@ class aoa_fit:
         self.tk = self.tc + 273.15
         self.p = self.p*100 # hPa to Pa
         self.rho = self.p/Rd/self.tk
+
+        # now, calculate reference AoS
+        # do filtering
+        self.order = order
+        self.sampling_freq = sampling_freq
+        self.cutoff_freq = cutoff_freq
+        self.ratio = self.bdifr/self.q
+        # design the filter
+        sos = signal.butter(self.order, self.cutoff_freq, btype='lowpass', fs=self.sampling_freq, output='sos', analog=False)
+        # compute response function
+        self.f, self.h = signal.sosfreqz(sos,fs=self.sampling_freq)
+        # now, actually do the filtering
+        all_u = df['UIC'].to_numpy()
+        all_v = df['VIC'].to_numpy()
+        mean_u = np.nanmean(all_u)
+        mean_v = np.nanmean(all_v)
+        all_u = np.where(np.isfinite(all_u), all_u, mean_u)
+        all_v = np.where(np.isfinite(all_v), all_v, mean_u)
+
+        self.hdg_sm = signal.sosfiltfilt(sos, df['THDG'].to_numpy())[mask]
+        self.u_sm = signal.sosfiltfilt(sos, all_u)[mask]
+        self.v_sm = signal.sosfiltfilt(sos, all_v)[mask]
+        self.up_sm = signal.sosfiltfilt(sos, df['GGVEW'].to_numpy())[mask]
+        self.vp_sm = signal.sosfiltfilt(sos, df['GGVNS'].to_numpy())[mask]
+        self.trk_sm = signal.sosfiltfilt(sos, df['GGTRK'].to_numpy())[mask]
+        self.hdg_sm = signal.sosfiltfilt(sos, df['THDG'].to_numpy())[mask]
+        self.wd_sm = signal.sosfiltfilt(sos, df['WDC'].to_numpy())[mask]
+        self.ratio_sm = signal.sosfiltfilt(sos, df['BDIFR'].to_numpy()/df['QCF'].to_numpy())[mask]
+        # now, compute aos_ref
+        self.aos_corr = np.arctan2((self.up - self.u_sm),(self.vp-self.v_sm))*180/math.pi
+        self.aos_corr = np.where(self.aos_corr < 0, self.aos_corr + 360, self.aos_corr)
+        self.aos_ref = -self.hdg + self.aos_corr
+        self.aos_ref = np.where(self.aos_ref < -200, self.aos_ref+360, self.aos_ref)
+
         self.calc_coefs()
 
     def calc_coefs(self):
@@ -513,7 +548,7 @@ class aoa_fit:
 
 class aos_fit:
     # a fancy dataclass that computes quite a few things in the init
-    def __init__(self, df: pd.DataFrame, mask: np.array, flight: str, leg: int = None, sampling_freq: float = 1, cutoff_freq: float = 1./30, order: int = 50):
+    def __init__(self, df: pd.DataFrame, mask: np.array, flight: str, leg: int = None, sampling_freq: float = 2*math.pi/1., cutoff_freq: float = 2.*math.pi/30, order: int = 5):
         # sampling_freq has units of 1./(samples per second)
         self.df = df
         self.mask = mask
@@ -524,7 +559,8 @@ class aos_fit:
         self.varnamemap = {'datetime': 'dt', 'QCF': 'q', 'PSFD': 'ps', 'ADIFR': 'adifr', 'BDIFR': 'bdifr',
                            'GGVSPD': 'vspd', 'TASFR': 'tas', 'UIC': 'u', 'VIC': 'v',
                            'PITCH': 'pitch', 'ROLL': 'roll', 'THDG': 'hdg', 'AKRD': 'akrd', 'SSLIP': 'sslip', 'PALTF': 'paltf',
-                           'GGALT': 'alt', 'GGVEW': 'up', 'GGVNS': 'vp', 'GGTRK': 'trk', 'ATX': 'tc', 'PSXC': 'p'}
+                           'GGALT': 'alt', 'GGVEW': 'up', 'GGVNS': 'vp', 'GGTRK': 'trk', 'ATX': 'tc', 'PSXC': 'p',
+                           'UIC': 'u', 'VIC': 'v', 'WIC': 'w', 'WDC': 'wd'}
         self.r2d = 180./math.pi
         # get basic vars needed
 
@@ -540,6 +576,7 @@ class aos_fit:
         self.order = order
         self.sampling_freq = sampling_freq
         self.cutoff_freq = cutoff_freq
+        self.ratio = self.bdifr/self.q
         # design the filter
         sos = signal.butter(self.order, self.cutoff_freq, btype='lowpass', fs=self.sampling_freq, output='sos', analog=False)
         # compute response function
@@ -548,11 +585,21 @@ class aos_fit:
         self.hdg_sm = signal.sosfiltfilt(sos, df['THDG'].to_numpy())[mask]
         self.u_sm = signal.sosfiltfilt(sos, df['UIC'].to_numpy())[mask]
         self.v_sm = signal.sosfiltfilt(sos, df['VIC'].to_numpy())[mask]
+        self.up_sm = signal.sosfiltfilt(sos, df['GGVEW'].to_numpy())[mask]
+        self.vp_sm = signal.sosfiltfilt(sos, df['GGVNS'].to_numpy())[mask]
+        self.trk_sm = signal.sosfiltfilt(sos, df['GGTRK'].to_numpy())[mask]
+        self.hdg_sm = signal.sosfiltfilt(sos, df['THDG'].to_numpy())[mask]
+        self.wd_sm = signal.sosfiltfilt(sos, df['WDC'].to_numpy())[mask]
+        self.ratio_sm = signal.sosfiltfilt(sos, df['BDIFR'].to_numpy()/df['QCF'].to_numpy())[mask]
         # now, compute aos_ref
         self.aos_corr = np.arctan2((self.up - self.u_sm),(self.vp-self.v_sm))*180/math.pi
         self.aos_corr = np.where(self.aos_corr < 0, self.aos_corr + 360, self.aos_corr)
         self.aos_ref = -self.hdg + self.aos_corr
-        self.aos_check = simple_fit_func(self.bdifr/self.q, 1.5478, 12.3612)
+        # simply the difference between where the aircraft is pointing and where it is going, not accounting for BDIFR
+        self.aos_ref2 = self.trk - self.hdg
+
+        #self.lat_spd = self.tas*np.sin(self.sslip*math.pi/180)
+        self.lat_spd = self.tas*np.sin(self.aos_ref*math.pi/180)
 
         self.calc_coefs()
 
@@ -571,7 +618,7 @@ class aos_fit:
 
     def append(self, obj):
         obj_copy = copy.deepcopy(self)
-        vars_to_append = list(self.varnamemap.values()) + ['mach', 'hdg_sm', 'u_sm', 'v_sm', 'aos_corr', 'aos_ref', 'aos_check']
+        vars_to_append = list(self.varnamemap.values()) + ['mach', 'hdg_sm', 'u_sm', 'v_sm', 'aos_corr', 'aos_ref', 'aos_check', 'aos_ref2', 'lat_spd', 'ratio']
         # append vars to the copied object
         for var in vars_to_append:
             setattr(obj_copy, var, np.concatenate((getattr(obj_copy,var), getattr(obj,var))))
@@ -609,20 +656,24 @@ def plot_filter_response(aos_obj: aos_fit):
 
 
 
-def plot_aoa_obj(aoa_obj: aoa_fit):
+def plot_aoa_obj(aoa_obj: aoa_fit, coefs: list[float]):
     # set up hover tool
     ht = HoverTool(tooltips=[('time', '@x{%H:%M:%S}'), ('y', '@y')], formatters={'@x': 'datetime'})
+
+    x = np.array([aoa_obj.adifr/aoa_obj.q, aoa_obj.mach])
+    cal_aoa = fit_func(x, *coefs)
 
     # generate the altitude, heading and gps quality plots
     height = 150
     width = 1000
     colors = itertools.cycle(Category10[8])
     p1 = figure(width=width, height=int(height*1.5))
-    p1.add_layout(Title(text="Pitch [deg]", align="center"), "left")
+    p1.add_layout(Title(text="AoA [deg]", align="center"), "left")
     #p1.line(aoa_obj.dt, aoa_obj.akrd, color=next(colors), legend_label='AOAPrev')
     p1.line(aoa_obj.dt, aoa_obj.aoa_ref, color=next(colors), legend_label='AOAREF')
-    p1.line(aoa_obj.dt, aoa_obj.akrd_three, color=next(colors), legend_label='AOAFit')
-    p1.line(aoa_obj.dt, aoa_obj.akrd_three-aoa_obj.aoa_ref, color=next(colors), legend_label='Diff')
+    #p1.line(aoa_obj.dt, aoa_obj.akrd_three, color=next(colors), legend_label='AOAFit')
+    p1.line(aoa_obj.dt, cal_aoa, color=next(colors), legend_label='AOACal')
+    p1.line(aoa_obj.dt, cal_aoa-aoa_obj.aoa_ref, color=next(colors), legend_label='Diff')
     #p1.line(aoa_obj.dt, aoa_obj.akrd_two, color=next(colors), legend_label='AOAFitSimple')
     p1.legend.location = 'top_left'
     p1.add_tools(ht)
@@ -696,6 +747,17 @@ def plot_aoa_obj(aoa_obj: aoa_fit):
     p6.legend.location = 'bottom_right'
     p6.add_tools(ht)
     format_ticks(p6)
+
+    colors = itertools.cycle(Category10[8])
+    p10 = figure(width=width, height=int(height*1.5), x_range=p1.x_range)
+    p10.add_layout(Title(text="AoS [deg]", align="center"), "left")
+    p10.line(aoa_obj.dt, aoa_obj.aos_ref, color=next(colors), legend_label='AOSREF')
+    p10.line(aoa_obj.dt, aoa_obj.sslip, color=next(colors), legend_label='AOS ARISTO')
+    p10.line(aoa_obj.dt, aoa_obj.sslip-aoa_obj.aos_ref, color=next(colors), legend_label='Diff')
+    p10.legend.location = 'top_left'
+    p10.add_tools(ht)
+    format_ticks(p10)
+
 
     p = gridplot([[p8], [p2], [p1], [p3], [p7], [p9], [p5], [p6],])
     show(p)
@@ -867,9 +929,90 @@ def plot_maneuv_for_aos(aos_obj: aos_fit):
     p = gridplot([[p1], [p2], [p3], [p4], [p5], [p6], [p7], ])
     show(p)
 
+def plot_aos_validation(prev: aos_fit, curr: aos_fit):
+    # set up hover tool
+    ht = HoverTool(tooltips=[('time', '@x{%H:%M:%S}'), ('y', '@y')], formatters={'@x': 'datetime'})
+
+    # generate the altitude, heading and gps quality plots
+    height = 150
+    width = 1000
+
+    colors = itertools.cycle(Category10[8])
+    p1 = figure(width=width, height=int(height))
+    p1.add_layout(Title(text="AoS [deg]", align="center"), "left")
+    p1.line(curr.dt, curr.aos_ref, color=next(colors), legend_label='Reference AoS')
+    #p1.line(curr.dt, curr.aos_ref2, color=next(colors), legend_label='Reference AoS Test')
+    p1.line(prev.dt, prev.sslip, color=next(colors), legend_label='Prev AoS')
+    p1.line(curr.dt, curr.sslip, color=next(colors), legend_label='Current AoS')
+    p1.legend.location = 'top_left'
+    p1.add_tools(ht)
+    format_ticks(p1)
+
+    colors = itertools.cycle(Category10[8])
+    p2 = figure(width=width, height=int(height))
+    p2.add_layout(Title(text="U [m/s]", align="center"), "left")
+    p2.line(prev.dt, prev.up - prev.up_sm, color=next(colors), legend_label='Prev HP Up')
+    p2.line(prev.dt, prev.u - prev.u_sm, color=next(colors), legend_label='Prev HP U')
+    p2.line(curr.dt, curr.u - curr.u_sm, color=next(colors), legend_label='Current HP U')
+    p2.legend.location = 'top_left'
+    p2.add_tools(ht)
+    format_ticks(p2)
+
+    colors = itertools.cycle(Category10[8])
+    p3 = figure(width=width, height=int(height))
+    p3.add_layout(Title(text="V [m/s]", align="center"), "left")
+    p3.line(prev.dt, prev.vp - prev.vp_sm, color=next(colors), legend_label='Prev HP Vp')
+    p3.line(prev.dt, prev.v - prev.v_sm, color=next(colors), legend_label='Prev HP V')
+    p3.line(curr.dt, curr.v - curr.v_sm, color=next(colors), legend_label='Current HP V')
+    p3.legend.location = 'top_left'
+    p3.add_tools(ht)
+    format_ticks(p3)
+
+    colors = itertools.cycle(Category10[8])
+    p4 = figure(width=width, height=int(height))
+    p4.add_layout(Title(text="Direction [deg]", align="center"), "left")
+    p4.line(prev.dt, prev.hdg - np.mean(prev.hdg), color=next(colors), legend_label='Hdg', width=2)
+    p4.line(prev.dt, prev.trk - np.mean(prev.trk), color=next(colors), legend_label='Trk')
+    p4.line(prev.dt, prev.wd - np.mean(prev.wd), color=next(colors), legend_label='Prev WD')
+    p4.line(prev.dt, curr.wd - np.mean(curr.wd), color=next(colors), legend_label='Current WD', width=2)
+    #p4.line(prev.dt, prev.wd - prev.wd_sm, color=next(colors), legend_label='Prev HP WD')
+    #p4.line(prev.dt, prev.wd, color=next(colors), legend_label='Prev HP WD')
+    #p4.line(prev.dt, prev.wd_sm, color=next(colors), legend_label='Prev HP WD')
+    #print(prev.wd)
+    #print(prev.wd_sm)
+    p4.legend.location = 'top_left'
+    p4.add_tools(ht)
+    format_ticks(p4)
+
+    colors = itertools.cycle(Category10[8])
+    p5 = figure(width=width, height=int(height))
+    p5.add_layout(Title(text="BDIFR/QCF", align="center"), "left")
+    p5.line(prev.dt, curr.ratio, color=next(colors))
+    p5.line(prev.dt, curr.ratio_sm, color=next(colors))
+    p5.legend.location = 'top_left'
+    p5.add_tools(ht)
+    format_ticks(p5)
+
+    colors = itertools.cycle(Category10[8])
+    p6 = figure(width=width, height=int(height))
+    p6.add_layout(Title(text="Lat. Spd. [m/s]", align="center"), "left")
+    p6.line(curr.dt, curr.lat_spd, color=next(colors))
+    p6.legend.location = 'top_left'
+    p6.add_tools(ht)
+    format_ticks(p6)
 
 
-def plot_aoa_scatter(aoa_obj: aoa_fit, title='', aoa_range=(0,6.5)):
+    p = gridplot([[p5], [p1], [p4], [p2], [p3], [p6], ])
+    show(p)
+
+
+
+
+def plot_aoa_scatter(aoa_obj: aoa_fit, coefs: list[float], title='', aoa_range=(0,6.5), aos_range=(-6.5,6.5)):
+
+    x = np.array([aoa_obj.adifr/aoa_obj.q,aoa_obj.mach])
+    aoa_cal = fit_func(x, *coefs)
+
     # generate the altitude, heading and gps quality plots
     height = 400
     width = 400
@@ -884,19 +1027,65 @@ def plot_aoa_scatter(aoa_obj: aoa_fit, title='', aoa_range=(0,6.5)):
 
     colors = itertools.cycle(Category10[8])
     p2 = figure(width=width, height=height, title=title+'Predicted AoA vs Ref AoA', x_range=aoa_range, y_range=aoa_range)
-    p2.add_layout(Title(text="Fit AoA [deg]", align="center"), "left")
+    p2.add_layout(Title(text="Calibrated AoA [deg]", align="center"), "left")
     p2.add_layout(Title(text="AoA Ref [def]", align="center"), "below")
-    p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_two, color=next(colors), size=10, legend_label='1-predictor')
-    p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_three, color=next(colors), size=10, legend_label='2-predictors')
+    p2.dot(aoa_obj.aoa_ref, aoa_cal, color=next(colors), size=10)
+    #p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_two, color=next(colors), size=10, legend_label='1-predictor')
+    #p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_three, color=next(colors), size=10, legend_label='2-predictors')
     #p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd, color=next(colors), size=10, legend_label='ARISTO', fill_alpha=0.5, line_alpha=0.5)
     p2.line(aoa_range, aoa_range, color='black', legend_label='1-to-1')
     p2.legend.location = 'top_left'
     #fit_three = fit_func(np.array([ratio, self.mach]), *self.coefs_three)
 
-    
+    colors = itertools.cycle(Category10[8])
+    p3 = figure(width=width, height=height, title=title+' Reference AoS vs BDIFR/Q')
+    p3.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
+    p3.add_layout(Title(text="BDIFR/Q", align="center"), "below")
+    p3.dot(aoa_obj.bdifr/aoa_obj.q, aoa_obj.aos_ref, color=next(colors), size=10)
+    p3.line(aoa_obj.bdifr/aoa_obj.q, aoa_obj.sslip, color=next(colors), legend_label='ARISTO fit', width=2)
+    p3.legend.location = 'top_left'
+
+    colors = itertools.cycle(Category10[8])
+    p4 = figure(width=width, height=height, title=title+' ARISTO AoS vs Ref AoS', x_range=aos_range, y_range=aos_range)
+    p4.add_layout(Title(text="ARISTO AoA [deg]", align="center"), "left")
+    p4.add_layout(Title(text="AoS Ref [def]", align="center"), "below")
+    p4.dot(aoa_obj.aos_ref, aoa_obj.sslip, color=next(colors), size=10)
+    p4.line(aos_range, aos_range, color='black', legend_label='1-to-1')
+    p4.legend.location = 'top_left'
+    #fit_three = fit_func(np.array([ratio, self.mach]), *self.coefs_three)
+
+   
     #p1.line(aoa_obj.akrd_three, aoa_obj.aoa_ref, color=next(colors))
-    p = gridplot([[p1, p2]])
+    #p = gridplot([[p1, p2], [p3, p4]])
+    p = gridplot([[p1, p2],])
     show(p)
+
+def plot_aoa_scatter_for_cal(aoa_obj: aoa_fit, title='', aoa_range=(0,6.5), aos_range=(-6.5,6.5)):
+
+    # generate the altitude, heading and gps quality plots
+    height = 400
+    width = 400
+    colors = itertools.cycle(Category10[8])
+    p1 = figure(width=width, height=height, title=title+'AOARef vs Ratio')
+    p1.add_layout(Title(text="AoA Ref [deg]", align="center"), "left")
+    p1.add_layout(Title(text="ADIFR/Q", align="center"), "below")
+    p1.dot(aoa_obj.adifr/aoa_obj.q, aoa_obj.aoa_ref, color=next(colors), size=10)
+    p1.line(aoa_obj.adifr/aoa_obj.q, aoa_obj.akrd_two, color=next(colors), legend_label='1-predictor fit', width=2)
+    p1.line(aoa_obj.adifr/aoa_obj.q, aoa_obj.akrd, color=next(colors), legend_label='ARISTO fit')
+    p1.legend.location = 'top_left'
+
+    colors = itertools.cycle(Category10[8])
+    p2 = figure(width=width, height=height, title=title+'Predicted AoA vs Ref AoA', x_range=aoa_range, y_range=aoa_range)
+    p2.add_layout(Title(text="Calibrated AoA [deg]", align="center"), "left")
+    p2.add_layout(Title(text="AoA Ref [def]", align="center"), "below")
+    p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_two, color=next(colors), size=10, legend_label='1-predictor')
+    p2.dot(aoa_obj.aoa_ref, aoa_obj.akrd_three, color=next(colors), size=10, legend_label='2-predictors')
+    p2.line(aoa_range, aoa_range, color='black', legend_label='1-to-1')
+    p2.legend.location = 'top_left'
+
+    p = gridplot([[p1, p2],])
+    show(p)
+
 
 def plot_aos_scatter(aos_obj: aos_fit, title='', aos_range=(-7,7)):
     # generate the altitude, heading and gps quality plots
