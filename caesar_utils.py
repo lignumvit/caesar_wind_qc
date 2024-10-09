@@ -616,7 +616,7 @@ class aos_fit:
 
     def append(self, obj):
         obj_copy = copy.deepcopy(self)
-        vars_to_append = list(self.varnamemap.values()) + ['mach', 'hdg_sm', 'u_sm', 'v_sm', 'aos_corr', 'aos_ref', 'aos_check', 'aos_ref2', 'lat_spd', 'ratio']
+        vars_to_append = list(self.varnamemap.values()) + ['mach', 'hdg_sm', 'u_sm', 'v_sm', 'aos_corr', 'aos_ref', 'aos_ref2', 'lat_spd', 'ratio']
         # append vars to the copied object
         for var in vars_to_append:
             setattr(obj_copy, var, np.concatenate((getattr(obj_copy,var), getattr(obj,var))))
@@ -868,8 +868,6 @@ def plot_maneuv_for_aos(aos_obj: aos_fit):
     p1.line(aos_obj.dt, aos_obj.sslip, color=next(colors), legend_label='AOSPrev')
     p1.line(aos_obj.dt, aos_obj.aos_ref, color=next(colors), legend_label='AOSRef')
     p1.line(aos_obj.dt, aos_obj.sslip_fit, color=next(colors), legend_label='AOSFit')
-    #p1.line(aos_obj.dt, aos_obj.aos_check, color=next(colors), legend_label='AOSCheck')
-    #p1.line(aos_obj.dt, aos_obj.sslip - aos_obj.aos_check, color=next(colors), legend_label='Prev-Check')
     p1.legend.location = 'top_left'
     p1.add_tools(ht)
     format_ticks(p1)
