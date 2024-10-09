@@ -457,7 +457,7 @@ class aoa_fit:
         self.tk = self.tc + 273.15
         self.p = self.p*100 # hPa to Pa
         self.rho = self.p/Rd/self.tk
-
+        
         # now, calculate reference AoS
         # do filtering
         self.order = order
@@ -496,22 +496,20 @@ class aoa_fit:
     def calc_coefs(self):
         # first, fit two predictor, three parameter function
         ratio = self.adifr/self.q
-        #print(np.shape(ratio))
-        #print(np.shape(self.mach))
-        #print(np.shape(self.rho))
-        x = np.array([ratio, self.mach, self.rho])
-        self.coefs_four, pcov_four, odict_four, msg_four, ierr_four = curve_fit(fit_func_four, x, self.aoa_ref, full_output=True, method='trf')
+        finite_mask = np.logical_and(np.logical_and(np.isfinite(ratio), np.isfinite(self.mach)),np.isfinite(self.rho))
+        x = np.array([ratio[finite_mask], self.mach[finite_mask], self.rho[finite_mask]])
+        self.coefs_four, pcov_four, odict_four, msg_four, ierr_four = curve_fit(fit_func_four, x, self.aoa_ref[finite_mask], full_output=True, method='trf')
         self.cond_no_four = np.linalg.cond(pcov_four)
         self.converged_four = not ierr_four == 0
 
-        x = np.array([ratio, self.mach])
-        self.coefs_three, pcov_three, odict_three, msg_three, ierr_three = curve_fit(fit_func, x, self.aoa_ref, 
+        x = np.array([ratio[finite_mask], self.mach[finite_mask]])
+        self.coefs_three, pcov_three, odict_three, msg_three, ierr_three = curve_fit(fit_func, x, self.aoa_ref[finite_mask], 
                                                                                      p0=self.prev_coefs_three, full_output=True, method='trf')
         self.cond_no_three = np.linalg.cond(pcov_three)
         self.converged_three = not ierr_three == 0
 
         # second, fit single predictor, two parameter function
-        self.coefs_two, pcov_two, odict_two, msg_two, ierr_two = curve_fit(simple_fit_func, ratio, self.aoa_ref, 
+        self.coefs_two, pcov_two, odict_two, msg_two, ierr_two = curve_fit(simple_fit_func, ratio[finite_mask], self.aoa_ref[finite_mask], 
                                                                            p0=self.prev_coefs_two, full_output=True, method='trf')
         self.cond_no_two = np.linalg.cond(pcov_two)
         self.converged_two = not ierr_two == 0
@@ -673,6 +671,7 @@ def plot_aoa_obj(aoa_obj: aoa_fit, coefs: list[float]):
     p1.line(aoa_obj.dt, aoa_obj.aoa_ref, color=next(colors), legend_label='AOAREF')
     #p1.line(aoa_obj.dt, aoa_obj.akrd_three, color=next(colors), legend_label='AOAFit')
     p1.line(aoa_obj.dt, cal_aoa, color=next(colors), legend_label='AOACal')
+    #p1.line(aoa_obj.dt, aoa_obj.akrd, color=next(colors), legend_label='AKRD')
     p1.line(aoa_obj.dt, cal_aoa-aoa_obj.aoa_ref, color=next(colors), legend_label='Diff')
     #p1.line(aoa_obj.dt, aoa_obj.akrd_two, color=next(colors), legend_label='AOAFitSimple')
     p1.legend.location = 'top_left'
@@ -704,9 +703,10 @@ def plot_aoa_obj(aoa_obj: aoa_fit, coefs: list[float]):
     format_ticks(p7)
 
     colors = itertools.cycle(Category10[8])
-    p8 = figure(width=width, height=int(height), x_range=p1.x_range)
+    p8 = figure(width=width, height=int(height), x_range=p1.x_range, title=aoa_obj.flight)
     p8.add_layout(Title(text="Pres. Alt. [ft]", align="center"), "left")
-    p8.line(aoa_obj.df['datetime'], aoa_obj.df['PALTF'], color=next(colors), legend_label='PSFD')
+    #p8.line(aoa_obj.df['datetime'], aoa_obj.df['PALTF'], color=next(colors), legend_label='PSFD')
+    p8.line(aoa_obj.df['datetime'], aoa_obj.df['GGALT'], color=next(colors), legend_label='GGALT')
     p8.legend.location = 'bottom_right'
     p8.add_tools(ht)
     format_ticks(p8)
@@ -733,7 +733,8 @@ def plot_aoa_obj(aoa_obj: aoa_fit, coefs: list[float]):
     p5.add_layout(Title(text="Wind Spd. [m/s]", align="center"), "left")
     #p5.line(aoa_obj.df['datetime'], aoa_obj.df['UIC'], color=next(colors), legend_label='UIC')
     #p5.line(aoa_obj.df['datetime'], aoa_obj.df['VIC'], color=next(colors), legend_label='VIC')
-    p5.line(aoa_obj.df['datetime'], aoa_obj.df['WIC'], color=next(colors), legend_label='WIC')
+    #p5.line(aoa_obj.df['datetime'], aoa_obj.df['WIC'], color=next(colors), legend_label='WIC')
+    p5.line(aoa_obj.dt, aoa_obj.w, color=next(colors), legend_label='WIC')
     p5.legend.location = 'bottom_right'
     p5.add_tools(ht)
     format_ticks(p5)
@@ -759,7 +760,8 @@ def plot_aoa_obj(aoa_obj: aoa_fit, coefs: list[float]):
     format_ticks(p10)
 
 
-    p = gridplot([[p8], [p2], [p1], [p3], [p7], [p9], [p5], [p6],])
+    #p = gridplot([[p8], [p2], [p1], [p3], [p7], [p9], [p5], [p6],])
+    p = gridplot([[p8], [p2], [p1], [p3], [p5],])
     show(p)
 
 def plot_maneuv_for_aoa(aoa_obj: aoa_fit):
@@ -1567,4 +1569,110 @@ def add_7hrs(beg_end: dict):
             beg_end_copy[flight][i][1] = beg_end[flight][i][1] + 7*3600
 
     return beg_end_copy
+
+def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=20):
+
+    # generate the altitude, heading and gps quality plots
+    height = 500
+    width = 500
+    colors = itertools.cycle(Category10[8])
+    p = figure(width=width, height=height, title=title+' Z vs W')
+    p.add_layout(Title(text="Z [km]", align="center"), "left")
+    p.add_layout(Title(text="w [m/s]", align="center"), "below")
+    p.dot(aoa_obj.w, aoa_obj.alt/1000., color=next(colors), size=10)
+
+    max_z = np.max(aoa_obj.alt)
+    min_z = np.min(aoa_obj.alt)
+    z_step = (max_z-min_z)/n_z_bins
+    bin_edges = np.arange(min_z,max_z,z_step)
+    bin_edges = np.append(bin_edges, max_z)
+    bin_centers = 0.5*(bin_edges[0:-1]+bin_edges[1:])
+    mean_w = np.zeros(len(bin_centers))
+    for i in range(len(bin_centers)):
+        bin_min = bin_edges[i]
+        bin_max = bin_edges[i+1]
+        bin_mask = np.logical_and(aoa_obj.alt > bin_min, aoa_obj.alt < bin_max)
+        mean_w[i] = np.mean(aoa_obj.w[bin_mask])
+
+    p.line(mean_w, bin_centers/1000., color='black', width=2)
+
+    show(p)
+
+def plot_all_z_vs_w(aoa_objs: list[aoa_fit], n_z_bins=20):
+    # generate the altitude, heading and gps quality plots
+    height = 300
+    width = 300
+
+    plt_per_row = 3
+    figs = []
+    row_list = []
+    for i, aoa_obj in enumerate(aoa_objs):
+        max_z = np.max(aoa_obj.alt)
+        min_z = np.min(aoa_obj.alt)
+        z_step = (max_z-min_z)/n_z_bins
+        bin_edges = np.arange(min_z,max_z,z_step)
+        bin_edges = np.append(bin_edges, max_z)
+        bin_centers = 0.5*(bin_edges[0:-1]+bin_edges[1:])
+        mean_w = np.zeros(len(bin_centers))
+        for i in range(len(bin_centers)):
+            bin_min = bin_edges[i]
+            bin_max = bin_edges[i+1]
+             
+            bin_mask = np.logical_and(aoa_obj.alt > bin_min, aoa_obj.alt < bin_max)
+            #print(f"bin min: {bin_min:5.0f}, bin max: {bin_max:5.0f}, mean z: {np.mean(aoa_obj.alt[bin_mask])}")
+            mean_w[i] = np.mean(aoa_obj.w[bin_mask])
+            #print(f"z: {bin_centers[i]:5.0f} m, mean w: {mean_w[i]}")
+
+        #for i in range(len(bin_centers)):
+        #    print(f"z: {bin_centers[i]:5.0f} m, mean w: {mean_w[i]}")
+         
+        colors = itertools.cycle(Category10[8])
+        p = figure(width=width, height=height, title=f"{aoa_obj.flight}, AOARef vs Ratio")
+        p.add_layout(Title(text="z [km]", align="center"), "left")
+        p.add_layout(Title(text="w [m/s]", align="center"), "below")
+        p.dot(aoa_obj.w, aoa_obj.alt/1000., color=next(colors), size=10)
+        p.line(mean_w, bin_centers/1000., color='black', width=2)
+        if len(row_list) < plt_per_row:
+            row_list.append(p)
+        else:
+            figs.append(row_list)
+            row_list = [p]
+
+        if i == len(aoa_objs)-1:
+            figs.append(row_list)
+
+        
+    p = gridplot(figs)
+    show(p)
+
+def plot_all_aoa_obj(aoa_objs: list[aoa_fit], coefs: list[float]):
+    # set up hover tool
+    ht = HoverTool(tooltips=[('time', '@x{%H:%M:%S}'), ('y', '@y')], formatters={'@x': 'datetime'})
+
+
+    figs = []
+
+    height = 200
+    width = 1000
+
+    for aoa_obj in aoa_objs:
+
+        x = np.array([aoa_obj.adifr/aoa_obj.q, aoa_obj.mach])
+        cal_aoa = fit_func(x, *coefs)
+        # generate the altitude, heading and gps quality plots
+        colors = itertools.cycle(Category10[8])
+        p = figure(width=width, height=int(height), title=aoa_obj.flight)
+        p.add_layout(Title(text="AoA [deg]", align="center"), "left")
+        #p.line(aoa_obj.dt, aoa_obj.aoa_ref, color=next(colors), legend_label='AOAREF')
+        #p.line(aoa_obj.dt, cal_aoa, color=next(colors), legend_label='AOACal')
+        #p.line(aoa_obj.dt, aoa_obj.akrd, color=next(colors), legend_label='AKRD')
+        p.line(aoa_obj.dt, cal_aoa-aoa_obj.aoa_ref, color=next(colors), legend_label='Diff')
+        p.legend.location = 'top_left'
+        p.add_tools(ht)
+        format_ticks(p)
+        figs.append([p])
+
+    p = gridplot(figs)
+    show(p)
+
 
