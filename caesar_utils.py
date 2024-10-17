@@ -125,7 +125,7 @@ def mask_descent(df):
 
 def mask_flying(df):
     tas = df['TASFR']
-    mask = tas > min_tas
+    mask = tas > 80.
     return mask.to_numpy()
 
 
@@ -158,7 +158,7 @@ def simple_fit_func(ratio, a, b):
 def open_nc(data_dir):
     # get file names
     # only partial data on return ff's, so those are excluded. Only included the first three
-    ffnames = sorted(["CAESARff01.nc", "CAESARff02.nc", "CAESARff03.nc"])
+    ffnames = sorted(["CAESARff01.nc", "CAESARff02.nc", "CAESARff03.nc", "CAESARff04.nc", "CAESARff05.nc", "CAESARff06.nc"])
     tfnames = sorted([fname for fname in os.listdir(data_dir) if fnmatch(fname, "*tf??.nc")])
     rfnames = sorted([fname for fname in os.listdir(data_dir) if fnmatch(fname, "*rf??.nc")])
     allfnames = ffnames + tfnames + rfnames
