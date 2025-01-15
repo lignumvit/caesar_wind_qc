@@ -273,14 +273,9 @@ def plot_track(df: pd.DataFrame, mask: pd.Series = None, title: str =''):
         plot = figure(width=600, height=600, title=title, x_axis_type="mercator", y_axis_type="mercator") 
         plot.add_layout(Title(text="Longitude [Degrees]", align="center"), "below")
         plot.add_layout(Title(text="Latitude [Degrees]", align="center"), "left")
-        # except Exception as e:
-        #     print(e)
         
         # add the flight track in yellow and add Esri World Imagery as the basemap
-        # try:
         if sum(mask) != len(latitude):
-            # condition = np.logical_and(data[flight]["Time"].to_numpy() > start,
-            #                            data[flight]["Time"].to_numpy() < end)
             lat = df["GGLAT"][mask].to_numpy().squeeze()
             lon = df["GGLON"][mask].to_numpy().squeeze()
             lon = lon * (k * np.pi/180.0)
