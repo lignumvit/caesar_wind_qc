@@ -11,7 +11,7 @@ from bokeh.io import push_notebook, show, output_notebook
 from bokeh.layouts import row
 from bokeh.layouts import gridplot
 from bokeh.plotting import figure, show
-from bokeh.models import Title, CustomJS, Select, TextInput, Button, LinearAxis, Range1d, FuncTickFormatter, HoverTool, ColumnDataSource
+from bokeh.models import Title, CustomJS, Select, TextInput, Button, LinearAxis, Range1d, HoverTool, ColumnDataSource
 from bokeh.models.formatters import DatetimeTickFormatter
 from bokeh.models.tickers import DatetimeTicker
 from bokeh.palettes import Category10
@@ -291,7 +291,7 @@ def plot_track(df: pd.DataFrame, mask: pd.Series = None, title: str =''):
 
 # function definition for creating generic timeseries plot
 def format_ticks(plot):
-    plot.xaxis.formatter=DatetimeTickFormatter(days =['%h:%m'], hours="%h:%m", minutes="%h:%m",hourmin = ['%h:%m'])             
+    plot.xaxis.formatter=DatetimeTickFormatter(days ='%h:%m', hours="%h:%m", minutes="%h:%m",hourmin = '%h:%m')
 
 def plot_time_series_aoa(df: pd.DataFrame, mask=None, title=''):
     if mask is None:
