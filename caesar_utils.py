@@ -1563,11 +1563,11 @@ def add_7hrs(beg_end: dict):
 
     return beg_end_copy
 
-def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=20):
+def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=40):
 
     # generate the altitude, heading and gps quality plots
-    height = 500
-    width = 500
+    height = 600
+    width = 600
     colors = itertools.cycle(Category10[8])
     p = figure(width=width, height=height, title=title+' Z vs W')
     p.add_layout(Title(text="Z [km]", align="center"), "left")
