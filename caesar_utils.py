@@ -1563,7 +1563,7 @@ def add_7hrs(beg_end: dict):
 
     return beg_end_copy
 
-def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=40):
+def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=60):
 
     # generate the altitude, heading and gps quality plots
     height = 600
@@ -1579,6 +1579,7 @@ def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=40):
     z_step = (max_z-min_z)/n_z_bins
     bin_edges = np.arange(min_z,max_z,z_step)
     bin_edges = np.append(bin_edges, max_z)
+    print(f"min z: {min_z}, max z: {max_z}, bin_depth: {bin_edges[1]-bin_edges[0]}")
     bin_centers = 0.5*(bin_edges[0:-1]+bin_edges[1:])
     mean_w = np.zeros(len(bin_centers))
     for i in range(len(bin_centers)):
@@ -1587,11 +1588,14 @@ def plot_z_vs_w(aoa_obj: aoa_fit, title='', n_z_bins=40):
         bin_mask = np.logical_and(aoa_obj.alt > bin_min, aoa_obj.alt < bin_max)
         mean_w[i] = np.mean(aoa_obj.w[bin_mask])
 
+    not_nan_inds = np.argwhere(np.isfinite(mean_w)).squeeze()
+    mean_w = mean_w[not_nan_inds]
+    bin_centers = bin_centers[not_nan_inds]
     p.line(mean_w, bin_centers/1000., color='black', width=2)
 
     show(p)
 
-def plot_all_z_vs_w(aoa_objs: list[aoa_fit], n_z_bins=20):
+def plot_all_z_vs_w(aoa_objs: list[aoa_fit], n_z_bins=40):
     # generate the altitude, heading and gps quality plots
     height = 300
     width = 300
@@ -1618,6 +1622,13 @@ def plot_all_z_vs_w(aoa_objs: list[aoa_fit], n_z_bins=20):
 
         #for i in range(len(bin_centers)):
         #    print(f"z: {bin_centers[i]:5.0f} m, mean w: {mean_w[i]}")
+
+        not_nan_inds = np.argwhere(np.isfinite(mean_w)).squeeze()
+        mean_w = mean_w[not_nan_inds]
+        bin_centers = bin_centers[not_nan_inds]
+        #if aoa_obj.flight == 'rf02':
+        #    print(aoa_obj.flight)
+        #    print(mean_w[not_nan_inds])
          
         colors = itertools.cycle(Category10[8])
         p = figure(width=width, height=height, title=f"{aoa_obj.flight}, AOARef vs Ratio")
